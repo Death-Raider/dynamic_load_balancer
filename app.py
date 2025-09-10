@@ -3,7 +3,7 @@ from tensorflow.keras.models import load_model
 import numpy as np
 
 app = Flask(__name__)
-model = load_model("C:\Users\Arnav\Coding\ML\mnist\mnist_cnn.h5")
+model = load_model("mnist_cnn.h5")
 
 @app.route("/predict", methods=["POST"])
 def predict():
