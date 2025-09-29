@@ -6,10 +6,11 @@ URL = "http://localhost:5000/route"
 
 async def make_request(i, client):
     try:
-        start = time.time()
-        resp = await client.get(URL, timeout=1000)
-        end = time.time()
-        print(f"Client {i} completed in {end - start:.2f}s")
+        curr_time = time.time()
+        new_url = f"{URL}?ts={curr_time}"
+        resp = await client.get(new_url, timeout=1000)
+        print(f"Client {i} completed in {round(resp.json()['ts']-curr_time,2)}s")
+        print(resp.json())
         return f"Client {i} -> {resp.json()}"
     except Exception as e:
         return f"Client {i} -> ERROR: {e}"
@@ -21,8 +22,8 @@ async def run_clients(num_clients=200):
         return results
     
 if __name__ == "__main__":
-    NUM_CLIENTS = 10
+    NUM_CLIENTS = 1
     while True:
+        time.sleep(1)
         start = time.time()
         results = asyncio.run(run_clients(NUM_CLIENTS))
-        print(f"Completed {NUM_CLIENTS} requests in {time.time() - start:.2f}s")

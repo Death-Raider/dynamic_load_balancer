@@ -6,21 +6,21 @@ import sys
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 import uvicorn
+import time
 
 PORT = None
 app = FastAPI()
 
 @app.get("/process")
 async def process():
-    global PORT
     # Simulate async work
     work_time = random.uniform(0.1, 0.5)
     await asyncio.sleep(work_time)
     return JSONResponse({
         "message": "Request processed",
-        "service_port": PORT,
         "hostname": socket.gethostname(),
-        "time_taken": work_time
+        "time_taken": work_time,
+        "ts": time.time(),
     })
 
 if __name__ == "__main__":
