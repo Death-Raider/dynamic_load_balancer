@@ -4,7 +4,7 @@ matplotlib.use("Agg")
 import subprocess
 import itertools
 import atexit
-import requests
+# import requests
 import statistics
 import threading
 import time
@@ -15,8 +15,10 @@ import uvicorn
 from collections import deque
 import io
 import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+from datetime import datetime
 from fastapi.responses import StreamingResponse
-import asyncio
+import httpx
 
 # ---- global for autoscaler ----
 response_times = deque(maxlen=1000)
@@ -24,7 +26,7 @@ last_scale_time = 0
 SCALE_COOLDOWN = 6.0
 MIN_SAMPLES = 5
 MIN_SERVICES = 1
-MAX_SERVICES = 100
+MAX_SERVICES = 4
 
 # ---- globals for managing services ----
 services = []
@@ -32,11 +34,17 @@ service_cycle = None
 lock = threading.Lock()  # To avoid race conditions
 
 # ---- global for stats ----
-SAMPLE_TIME = 5
-stats_history = []  # store aggregated stats per cycle for visualization
+SAMPLE_TIME = 2
+stats_history = deque(maxlen=1000)  # store aggregated stats per cycle for visualization
 last_sample_time = time.time()
 last_sample_count = 0
 request_count = {}       # Track requests per service port
+plot_cache = {
+    "latency": None,
+    "rps_scale": None,
+    "rt_hist": None,
+    "cum_requests": None,
+}
 
 def start_service(port: int):
     with lock:
@@ -73,13 +81,11 @@ def cleanup():
         proc.terminate()
 
 def scale_manager():
-    global response_times, last_scale_time
+    global response_times, last_scale_time, stats_history
     while True:
         time.sleep(SAMPLE_TIME)
         with lock:
             samples = list(response_times)
-            # clear buffer for the next window
-            response_times.clear()
 
         if len(samples) < MIN_SAMPLES:
             continue
@@ -88,17 +94,25 @@ def scale_manager():
         median = statistics.median(samples)
         p95_idx = max(0, int(0.95 * len(samples)) - 1)
         p95 = samples[p95_idx]
-        rps = len(samples) / 4.0
+        rps = len(samples) / SAMPLE_TIME
 
         print(f"[Scaler] median={median:.3f}s p95={p95:.3f}s instances={len(services)} rps={rps:.2f}")
-
+        
         now = time.time()
+
+        stats_history.append({
+            'timestamp': now,
+            'avg_lb_handle_time': statistics.mean(samples) if samples else 0,
+            'rps': rps,
+            'active_services': len(services),
+            'total_responses' : sum(request_count.values()),
+        })
         if now - last_scale_time < SCALE_COOLDOWN:
             continue
 
         # scale-up decisions (use p95 to be robust to spikes)
         if p95 > 1.0 and len(services) < MAX_SERVICES:
-            add = min(3, MAX_SERVICES - len(services))
+            add = min(2, MAX_SERVICES - len(services))
             base = max((p for p, _ in services)) if services else 6000
             for k in range(add):
                 start_service(base + 1 + k)
@@ -116,40 +130,104 @@ def scale_manager():
             stop_service()
             rebuild_cycle()
             last_scale_time = now
+        with lock:
+            # clear buffer for the next window
+            response_times.clear()
 
 
 def sample_stats_task():
-    """
-    Periodically sample stats (RPS, latency, active services) for visualization.
-    Runs in background without affecting route() or scaling.
-    """
-    global last_sample_time, last_sample_count, stats_history
-
+    global stats_history, response_times,  last_sample_time, last_sample_count
+    # collect stats snapshot
     while True:
-        time.sleep(SAMPLE_TIME)
-
-        now = time.time()
-        elapsed = now - last_sample_time
-
+        time.sleep(2)
         with lock:
-            total_responses = len(response_times)
-            new_responses = total_responses - last_sample_count
-            avg_rt = (sum(response_times) / len(response_times)) if response_times else 0
-            active_instances = len(services)
+            recent = list(stats_history)[-70:]  # keep last 200 samples
+            rtimes = list(response_times)
 
-        rps = new_responses / elapsed if elapsed > 0 else 0
+        # latency plot
+        if recent:
+            ts = [datetime.fromtimestamp(p["timestamp"]) for p in recent]
+            lat = [p["avg_lb_handle_time"] for p in recent]
+            buf = io.BytesIO()
+            plt.figure(figsize=(8, 4))
+            plt.plot(ts, lat, marker="o", markersize=3, linewidth=1)
+            plt.title("Average LB Handle Time")
+            plt.xlabel("Timestamp")
+            plt.ylabel("Latency (s)")
+            plt.grid(True)
+            ax = plt.gca()
+            ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
+            plt.gcf().autofmt_xdate()  # rotate labels for readability
+            plt.tight_layout()
+            plt.savefig(buf, format="png")
+            plt.close()
+            buf.seek(0)
+            plot_cache["latency"] = buf.getvalue()
 
-        stats_point = {
-            "timestamp": now,
-            "rps": rps,
-            "avg_lb_handle_time": avg_rt,
-            "active_services": active_instances,
-            "total_responses": total_responses,
-        }
+        if recent:
+            ts = [datetime.fromtimestamp(p["timestamp"]) for p in recent]
+            rps = [p["rps"] for p in recent]
+            services = [p["active_services"] for p in recent]
 
-        stats_history.append(stats_point)
-        last_sample_time = now
-        last_sample_count = total_responses
+            buf = io.BytesIO()
+            fig, ax1 = plt.subplots(figsize=(8, 4))
+
+            # Left y-axis → RPS
+            color_rps = "tab:blue"
+            ax1.set_xlabel("Time")
+            ax1.set_ylabel("RPS", color=color_rps)
+            ax1.plot(ts, rps, color=color_rps, label="RPS")
+            ax1.tick_params(axis="y", labelcolor=color_rps)
+            ax1.grid(True)
+            ax1.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
+            fig.autofmt_xdate()  # auto-rotate labels for better readability
+            # Right y-axis → Active Services
+            ax2 = ax1.twinx()
+            color_services = "tab:red"
+            ax2.set_ylabel("Active Services", color=color_services)
+            ax2.plot(ts, services, color=color_services, label="Services")
+            ax2.tick_params(axis="y", labelcolor=color_services)
+
+            # Title and layout
+            fig.suptitle("RPS vs Active Services")
+            fig.tight_layout()
+
+            plt.savefig(buf, format="png")
+            plt.close(fig)
+            buf.seek(0)
+
+            plot_cache["rps_scale"] = buf.getvalue()
+
+        # response time histogram
+        if rtimes:
+            buf = io.BytesIO()
+            plt.figure(figsize=(6, 4))
+            plt.hist(rtimes, bins=20)
+            plt.title("Client Response Time Distribution")
+            plt.xlabel("Response Time (s)")
+            plt.ylabel("Count")
+            plt.tight_layout()
+            plt.savefig(buf, format="png")
+            plt.close()
+            buf.seek(0)
+            plot_cache["rt_hist"] = buf.getvalue()
+
+        # cumulative requests
+        if recent:
+            total = [p["total_responses"] for p in recent]
+            buf = io.BytesIO()
+            plt.figure(figsize=(8, 4))
+            plt.plot(ts, total, label="Total Requests")
+            plt.title("Cumulative Requests Over Time")
+            plt.grid(True)
+            ax = plt.gca()
+            ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
+            plt.gcf().autofmt_xdate()  # rotate labels for readability
+            plt.tight_layout()
+            plt.savefig(buf, format="png")
+            plt.close()
+            buf.seek(0)
+            plot_cache["cum_requests"] = buf.getvalue()
 
 
 @asynccontextmanager
@@ -173,7 +251,7 @@ app = FastAPI(lifespan=lifespan)
 
 
 @app.get("/route")
-def route(ts: float = None):
+async def route(ts: float = None):
     global service_cycle, request_count, response_times
     if not service_cycle:
         return JSONResponse({"error": "No services available"}, status_code=501)
@@ -184,12 +262,14 @@ def route(ts: float = None):
     request_count[service_port] = request_count.get(service_port, 0) + 1
 
     try:
-        resp = requests.get(f"http://localhost:{service_port}/process", timeout=30)
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(f"http://localhost:{service_port}/process", timeout=30.0)
         service_data = resp.json()
         ts_lb_returned = time.time()
-
         # LB-local metric for autoscaler: time spent handling the request
-        lb_handle_time = ts_lb_returned - ts_lb_received
+        lb_handle_time = ts_lb_returned - ts
+
+        print(service_data.get("time_taken"))
 
         # append to rolling window (thread-safe)
         with lock:
@@ -214,100 +294,12 @@ def route(ts: float = None):
     except Exception as e:
         return JSONResponse({"error": str(e), "service": service_port}, status_code=502)
 
-@app.get("/plot/latency")
-def plot_latency():
-    if not stats_history:
-        return HTMLResponse("<h3>No data yet</h3>")
-
-    ts = [p["timestamp"] for p in stats_history]
-    latencies = [p["avg_lb_handle_time"] for p in stats_history]
-
-    plt.figure(figsize=(8,4))
-    plt.plot(ts, latencies, marker='o', markersize=3, linewidth=1)
-    plt.title("Average LB Handle Time Over Time")
-    plt.xlabel("Timestamp")
-    plt.ylabel("Latency (s)")
-    plt.grid(True)
-    plt.tight_layout()
-
-    buf = io.BytesIO()
-    plt.savefig(buf, format="png")
-    plt.close()
-    buf.seek(0)
-    return StreamingResponse(buf, media_type="image/png")
-
-# ----- RPS vs Active Services -----
-@app.get("/plot/rps_scale")
-def plot_rps_scale():
-    if not stats_history:
-        return HTMLResponse("<h3>No data yet</h3>")
-
-    ts = [p["timestamp"] for p in stats_history]
-    rps = [p["rps"] for p in stats_history]
-    services = [p["active_services"] for p in stats_history]
-
-    fig, ax1 = plt.subplots(figsize=(8,4))
-    ax1.set_xlabel("Timestamp")
-    ax1.set_ylabel("RPS", color="tab:blue")
-    ax1.plot(ts, rps, color="tab:blue", marker='o', markersize=3, linewidth=1)
-    ax1.tick_params(axis='y', labelcolor="tab:blue")
-
-    ax2 = ax1.twinx()
-    ax2.set_ylabel("Active Services", color="tab:orange")
-    ax2.plot(ts, services, color="tab:orange", marker='x', markersize=3, linewidth=1)
-    ax2.tick_params(axis='y', labelcolor="tab:orange")
-
-    plt.title("RPS vs Active Services Over Time")
-    fig.tight_layout()
-
-    buf = io.BytesIO()
-    plt.savefig(buf, format="png")
-    plt.close(fig)
-    buf.seek(0)
-    return StreamingResponse(buf, media_type="image/png")
-
-# ----- Response Time Histogram -----
-@app.get("/plot/rt_hist")
-def plot_rt_hist():
-    if not response_times:
-        return HTMLResponse("<h3>No response times yet</h3>")
-
-    plt.figure(figsize=(8,4))
-    plt.hist(list(response_times), bins=30, color='skyblue', edgecolor='black')
-    plt.title("Response Time Distribution (Recent Samples)")
-    plt.xlabel("LB Handle Time (s)")
-    plt.ylabel("Count")
-    plt.grid(True)
-    plt.tight_layout()
-
-    buf = io.BytesIO()
-    plt.savefig(buf, format="png")
-    plt.close()
-    buf.seek(0)
-    return StreamingResponse(buf, media_type="image/png")
-
-# ----- Cumulative Requests -----
-@app.get("/plot/cum_requests")
-def plot_cum_requests():
-    if not stats_history:
-        return HTMLResponse("<h3>No data yet</h3>")
-
-    ts = [p["timestamp"] for p in stats_history]
-    total = [p["total_responses"] for p in stats_history]
-
-    plt.figure(figsize=(8,4))
-    plt.plot(ts, total, marker='o', markersize=3, linewidth=1, color='green')
-    plt.title("Cumulative Requests Over Time")
-    plt.xlabel("Timestamp")
-    plt.ylabel("Total Requests")
-    plt.grid(True)
-    plt.tight_layout()
-
-    buf = io.BytesIO()
-    plt.savefig(buf, format="png")
-    plt.close()
-    buf.seek(0)
-    return StreamingResponse(buf, media_type="image/png")
+@app.get("/plot/{plot_name}")
+def serve_plot(plot_name: str):
+    img_data = plot_cache.get(plot_name)
+    if not img_data:
+        return StreamingResponse(io.BytesIO(), media_type="image/png")
+    return StreamingResponse(io.BytesIO(img_data), media_type="image/png")
 
 
 @app.get("/stats", response_class=HTMLResponse)
@@ -325,38 +317,31 @@ def stats_dashboard():
         </style>
     </head>
     <body>
-        <h1>Load Balancer Dashboard</h1>
-
-        <div class="section">
-            <h2>Average LB Handle Time Over Time</h2>
-            <img id="latency_plot" src="/plot/latency" width="800">
-        </div>
-
-        <div class="section">
+        <div>
+            <h2>Latency Over Time</h2>
+            <img id="latency" src="/plot/latency" width="600">
+            </div>
+            <div>
             <h2>RPS vs Active Services</h2>
-            <img id="rps_plot" src="/plot/rps_scale" width="800">
-        </div>
-
-        <div class="section">
-            <h2>Response Time Distribution (Recent Samples)</h2>
-            <img id="hist_plot" src="/plot/rt_hist" width="800">
-        </div>
-
-        <div class="section">
-            <h2>Cumulative Requests Over Time</h2>
-            <img id="cum_plot" src="/plot/cum_requests" width="800">
-        </div>
-
-        <script>
-            // Auto-refresh images every 3 seconds
+            <img id="rps_scale" src="/plot/rps_scale" width="600">
+            </div>
+            <div>
+            <h2>Response Time Histogram</h2>
+            <img id="rt_hist" src="/plot/rt_hist" width="600">
+            </div>
+            <div>
+            <h2>Cumulative Requests</h2>
+            <img id="cum_requests" src="/plot/cum_requests" width="600">
+            </div>
+            <script>
+            // Refresh plots every 4s
             setInterval(() => {
-                const t = new Date().getTime();
-                document.getElementById('latency_plot').src = '/plot/latency?' + t;
-                document.getElementById('rps_plot').src = '/plot/rps_scale?' + t;
-                document.getElementById('hist_plot').src = '/plot/rt_hist?' + t;
-                document.getElementById('cum_plot').src = '/plot/cum_requests?' + t;
+                ["latency", "rps_scale", "rt_hist", "cum_requests"].forEach(id => {
+                const img = document.getElementById(id);
+                img.src = `/plot/${id}?t=${Date.now()}`; // cache-bust
+                });
             }, 3000);
-        </script>
+            </script>
     </body>
     </html>
     """

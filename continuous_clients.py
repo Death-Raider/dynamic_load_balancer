@@ -8,22 +8,21 @@ async def make_request(i, client):
     try:
         curr_time = time.time()
         new_url = f"{URL}?ts={curr_time}"
-        resp = await client.get(new_url, timeout=1000)
-        print(f"Client {i} completed in {round(resp.json()['ts']-curr_time,2)}s")
-        print(resp.json())
-        return f"Client {i} -> {resp.json()}"
+        resp = await client.get(new_url, timeout=100)
+        data = resp.json()
+        print(f"Client {i} completed by {data['service_port']} in {round(data['timeline']['ts_lb_returned'] - curr_time, 2)}s")
     except Exception as e:
-        return f"Client {i} -> ERROR: {e}"
+        print(f"Client {i} -> ERROR: {e}")
 
-async def run_clients(num_clients=200):
+async def request_loop(rate_per_sec=50):
+    """Continuously send requests at a fixed rate per second."""
+    interval = 1.0 / rate_per_sec
+    i = 0
     async with httpx.AsyncClient() as client:
-        tasks = [make_request(i, client) for i in range(num_clients)]
-        results = await asyncio.gather(*tasks)
-        return results
-    
+        while True:
+            asyncio.create_task(make_request(i, client))
+            i += 1
+            await asyncio.sleep(interval)
+
 if __name__ == "__main__":
-    NUM_CLIENTS = 1
-    while True:
-        time.sleep(1)
-        start = time.time()
-        results = asyncio.run(run_clients(NUM_CLIENTS))
+    asyncio.run(request_loop(rate_per_sec=20))
