@@ -8,7 +8,7 @@ import atexit
 import statistics
 import threading
 import time
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, HTMLResponse
 from contextlib import asynccontextmanager
 import uvicorn
@@ -19,6 +19,7 @@ import matplotlib.dates as mdates
 from datetime import datetime
 from fastapi.responses import StreamingResponse
 import httpx
+import sys
 
 # ---- global for autoscaler ----
 response_times = deque(maxlen=1000)
@@ -27,7 +28,7 @@ SCALE_COOLDOWN = 6.0
 MIN_SAMPLES = 5
 MIN_SERVICES = 1
 MAX_SERVICES = 4
-
+SERVICE_PORT_START = 8000
 # ---- globals for managing services ----
 services = []
 service_cycle = None
@@ -46,9 +47,13 @@ plot_cache = {
     "cum_requests": None,
 }
 
+# ---- URL ENDPOINTS ----
+URL = "http://localhost"
+ENDPOINT = "/process"
+
 def start_service(port: int):
     with lock:
-        proc = subprocess.Popen(["python", "service.py", str(port)])
+        proc = subprocess.Popen(["python", "service/app.py", str(port)])
         services.append((port, proc))
         request_count[port] = 0
     print(f"[Scaler] Started service on port {port}")
@@ -70,9 +75,8 @@ def rebuild_cycle():
         service_cycle = None
 
 def start_services(n: int):
-    base_port = 6000
     for i in range(n):
-        start_service(base_port + i)
+        start_service(SERVICE_PORT_START + i)
     rebuild_cycle()
 
 
@@ -113,7 +117,7 @@ def scale_manager():
         # scale-up decisions (use p95 to be robust to spikes)
         if p95 > 1.0 and len(services) < MAX_SERVICES:
             add = min(2, MAX_SERVICES - len(services))
-            base = max((p for p, _ in services)) if services else 6000
+            base = max((p for p, _ in services)) if services else SERVICE_PORT_START
             for k in range(add):
                 start_service(base + 1 + k)
             rebuild_cycle()
@@ -232,8 +236,10 @@ def sample_stats_task():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    import sys
+    global URL, ENDPOINT
     N = int(sys.argv[1]) if len(sys.argv) > 1 else 1
+    URL = sys.argv[2] if len(sys.argv) > 2 else "http://localhost"
+    ENDPOINT = sys.argv[3] if len(sys.argv) > 3 else "/process"
     start_services(N)
     atexit.register(cleanup)
 
@@ -250,8 +256,8 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 
-@app.get("/route")
-async def route(ts: float = None):
+@app.post("/route")
+async def route(request: Request, ts: float = None):
     global service_cycle, request_count, response_times
     if not service_cycle:
         return JSONResponse({"error": "No services available"}, status_code=501)
@@ -260,10 +266,10 @@ async def route(ts: float = None):
 
     service_port = next(service_cycle)
     request_count[service_port] = request_count.get(service_port, 0) + 1
-
+    data_json = await request.json()
     try:
         async with httpx.AsyncClient() as client:
-            resp = await client.get(f"http://localhost:{service_port}/process", timeout=30.0)
+            resp = await client.post(f"{URL}:{service_port}{ENDPOINT}",json=data_json, timeout=30.0)
         service_data = resp.json()
         ts_lb_returned = time.time()
         # LB-local metric for autoscaler: time spent handling the request
@@ -349,4 +355,4 @@ def stats_dashboard():
 
 
 if __name__ == "__main__":
-    uvicorn.run("load_balancer:app", host="localhost", port=5000, reload=False)
+    uvicorn.run("load_balancer:app", host="0.0.0.0", port=5000, reload=False)

@@ -8,7 +8,8 @@ async def make_request(i, client):
     try:
         curr_time = time.time()
         new_url = f"{URL}?ts={curr_time}"
-        resp = await client.get(new_url, timeout=100)
+        payload = {"values": [0]*784}
+        resp = await client.post(new_url, json=payload, timeout=100)
         data = resp.json()
         print(f"Client {i} completed by {data['service_port']} in {round(data['timeline']['ts_lb_returned'] - curr_time, 2)}s")
     except Exception as e:
@@ -25,4 +26,4 @@ async def request_loop(rate_per_sec=50):
             await asyncio.sleep(interval)
 
 if __name__ == "__main__":
-    asyncio.run(request_loop(rate_per_sec=20))
+    asyncio.run(request_loop(rate_per_sec=2))
