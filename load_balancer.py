@@ -275,7 +275,7 @@ async def route(request: Request, ts: float = None):
         # LB-local metric for autoscaler: time spent handling the request
         lb_handle_time = ts_lb_returned - ts
 
-        print(service_data.get("time_taken"))
+        # print(service_data.get("time_taken"))
 
         # append to rolling window (thread-safe)
         with lock:

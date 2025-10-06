@@ -2,7 +2,7 @@ import asyncio
 import httpx
 import time
 
-URL = "http://localhost:5000/route"
+URL = "http://192.168.1.4:5000/route"
 
 async def make_request(i, client):
     try:
@@ -26,4 +26,4 @@ async def request_loop(rate_per_sec=50):
             await asyncio.sleep(interval)
 
 if __name__ == "__main__":
-    asyncio.run(request_loop(rate_per_sec=2))
+    asyncio.run(request_loop(rate_per_sec=5))

@@ -23,9 +23,9 @@ async def serve_index():
 async def prediction(request: Request):
     # 1️⃣ Parse the incoming JSON body
     data = await request.json()
-    print("Received data:", data)
+    # print("Received data:", data)
     img = np.array(data['values'])
-    print(img)
+    # print(img)
     img = img.reshape((1,28,28,1)).astype("float16")
 
     probs = model.predict(img, verbose=0)
