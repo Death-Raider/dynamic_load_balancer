@@ -46,4 +46,4 @@ async def prediction(request: Request):
 
 if __name__ == "__main__":
     PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8000
-    uvicorn.run("app:app", host="localhost", port=PORT, reload=False)
+    uvicorn.run("app:app", host="0.0.0.0", port=PORT, reload=False)
