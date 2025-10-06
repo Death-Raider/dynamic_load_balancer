@@ -273,7 +273,7 @@ async def route(request: Request, ts: float = None):
         service_data = resp.json()
         ts_lb_returned = time.time()
         # LB-local metric for autoscaler: time spent handling the request
-        lb_handle_time = ts_lb_returned - ts
+        lb_handle_time = ts_lb_returned - ts_lb_received
 
         # print(service_data.get("time_taken"))
 

@@ -6,6 +6,8 @@ from fastapi.staticfiles import StaticFiles
 import os
 import sys
 import uvicorn
+import time
+import socket
 
 PORT = None
 public_dir = os.path.join(os.path.dirname(__file__), "public")
@@ -23,6 +25,7 @@ async def serve_index():
 async def prediction(request: Request):
     # 1️⃣ Parse the incoming JSON body
     data = await request.json()
+    start_time = time.time()
     # print("Received data:", data)
     img = np.array(data['values'])
     # print(img)
@@ -31,7 +34,15 @@ async def prediction(request: Request):
     probs = model.predict(img, verbose=0)
     pred_label = int(np.argmax(probs, axis=1)[0])
     confidence = float(np.max(probs))
-    return JSONResponse(content={"output": f"Number {pred_label} with {confidence*100:.2f}% confidence"})
+    end_time = time.time()
+    return JSONResponse(content={
+        "output": f"Number {pred_label} with {confidence*100:.2f}% confidence", 
+        'ts':time.time(),
+        'service_port': PORT,
+        'time_taken': end_time - start_time,
+        'messaged': 'data processed successfully',
+        'hostname': socket.gethostname()
+    })
 
 if __name__ == "__main__":
     PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8000
