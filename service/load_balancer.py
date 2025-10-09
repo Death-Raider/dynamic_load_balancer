@@ -157,15 +157,7 @@ def scale_manager():
             continue
 
         # scale-up decisions (use p95 to be robust to spikes)
-        if p95 > 1.0 and len(services) < MAX_SERVICES:
-            add = min(2, MAX_SERVICES - len(services))
-            base = max((p for p, _ in services)) if services else SERVICE_PORT_START
-            for k in range(add):
-                start_service(base + 1 + k)
-            rebuild_cycle()
-            last_scale_time = now
-
-        elif p95 > 0.6 and len(services) < MAX_SERVICES:
+        if p95 > 0.6 and len(services) < MAX_SERVICES:
             base = max((p for p, _ in services))
             start_service(base + 1)
             rebuild_cycle()
@@ -187,7 +179,7 @@ def sample_stats_task():
     while True:
         service_stats = get_service_stats(interval_time=SAMPLE_TIME)
         with lock:
-            recent = list(stats_history)[-70:]  # keep last 200 samples
+            recent = list(stats_history)[-10:]  # keep last 200 samples
             rtimes = list(response_times)
         
         instance_stats = {
