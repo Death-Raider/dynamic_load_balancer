@@ -59,7 +59,7 @@ def start_service(port: int):
     global application, services, request_count
     with lock:
         proc = subprocess.Popen(["python", application, str(port)])
-        services.append((port, proc))
+        services.append((port, proc, psutil.Process(proc.pid)))
         request_count[port] = 0
     print(f"[Scaler] Started service on port {port}")
 
@@ -76,7 +76,7 @@ def stop_service():
 def rebuild_cycle():
     global service_cycle, services
     if services:
-        service_cycle = itertools.cycle([port for port, _ in services])
+        service_cycle = itertools.cycle([port for port, _, _ in services])
     else:
         service_cycle = None
 
@@ -87,15 +87,15 @@ def start_services(n: int):
 
 
 def cleanup():
-    for _, proc in services:
+    for _, proc, _ in services:
         proc.terminate()
 
 def get_service_stats(interval_time=1):
     global services
     stats = []
-    for port, proc in services:
+    for port, proc, process in services:
         try:
-            p = psutil.Process(proc.pid)
+            p = process
             with p.oneshot():  # optimizes multiple calls
                 cpu_percent = p.cpu_percent(interval=interval_time)  # short sample
                 memory_info = p.memory_info()
@@ -158,7 +158,7 @@ def scale_manager():
 
         # scale-up decisions (use p95 to be robust to spikes)
         if p95 > 0.6 and len(services) < MAX_SERVICES:
-            base = max((p for p, _ in services))
+            base = max((p for p, _,_ in services))
             start_service(base + 1)
             rebuild_cycle()
             last_scale_time = now
