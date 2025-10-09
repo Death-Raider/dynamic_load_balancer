@@ -104,7 +104,7 @@ def get_service_stats(interval_time=1):
                 create_time = datetime.fromtimestamp(p.create_time()).strftime("%H:%M:%S")
                 uptime = round(time.time() - p.create_time(), 2)
                 io_counters = p.io_counters() if p.is_running() else None
-
+            print("[LB] Service on port", port, "-> CPU:", cpu_percent, "% MEM:", round(memory_info.rss / (1024 * 1024), 2), "MB")
             stats.append({
                 "port": port,
                 "pid": proc.pid,
