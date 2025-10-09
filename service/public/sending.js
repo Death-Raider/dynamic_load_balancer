@@ -47,12 +47,11 @@ function sendData(x){
   //sends data and logs the responce
   async function responceServer(location){
     alert("sending request, please wait")
-    if(x == '/prediction'){
+      console.log(location);
       const responce = await fetch(location,options);
       let status = await responce.json();
       document.getElementById('predictor').disabled = false;
       document.getElementById('prediction').style.display = 'block';
       document.getElementById('prediction').innerHTML = status.output.toString('utf8');
-    }
   }
 }

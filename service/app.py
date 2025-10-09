@@ -1,48 +1,46 @@
-from tensorflow.keras.models import load_model
-import numpy as np
-from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi import FastAPI
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 import os
 import sys
 import uvicorn
-import time
-import socket
 
-PORT = None
 public_dir = os.path.join(os.path.dirname(__file__), "public")
-model_dir = os.path.join(os.path.dirname(__file__), "mnist_cnn.h5")
-model = load_model(model_dir)
+
 app = FastAPI()
 
 app.mount("/public", StaticFiles(directory=public_dir), name="public")
 
+BACKEND_PATH = 'http://localhost:5000/prediction'
+
 @app.get("/")
 async def serve_index():
-    return FileResponse(os.path.join(public_dir, "index.html"))
+    html_content = f"""
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Image Recogonition</title>
+    <link href="https://fonts.googleapis.com/css2?family=Courgette&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/public/graphics.css">
+  </head>
+  <body>
 
-@app.post("/prediction")
-async def prediction(request: Request):
-    # 1️⃣ Parse the incoming JSON body
-    data = await request.json()
-    start_time = time.time()
-    # print("Received data:", data)
-    img = np.array(data['values'])
-    # print(img)
-    img = img.reshape((1,28,28,1)).astype("float16")
+    <center id="canvasStuff" style="touch-action:none;">
+      <canvas height="600" width="600" id="myCanvas" background="Black"></canvas><br>
 
-    probs = model.predict(img, verbose=0)
-    pred_label = int(np.argmax(probs, axis=1)[0])
-    confidence = float(np.max(probs))
-    end_time = time.time()
-    return JSONResponse(content={
-        "output": f"Number {pred_label} with {confidence*100:.2f}% confidence", 
-        'ts':time.time(),
-        'service_port': PORT,
-        'time_taken': end_time - start_time,
-        'messaged': 'data processed successfully',
-        'hostname': socket.gethostname()
-    })
+      <br>
+      <button id="predictor" onclick="parseImg('{BACKEND_PATH}')">PREDICT!!!</button>
+      <button id="clear" onclick="clearScreen()">CLEAR</button>
+      <p id="prediction">Prediction appears here!</p><br>
+    </center>
+
+    <script src="/public/graphics.js" charset="utf-8"></script>
+    <script src="/public/sending.js" charset="utf-8"></script>
+  </body>
+</html>"""
+    return HTMLResponse(content=html_content, status_code=200)
+# FileResponse(os.path.join(public_dir, "index.html"))
 
 if __name__ == "__main__":
     PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8000
