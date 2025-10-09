@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Load Balancer Dashboard - Real-time Monitoring</title>
+    <meta name="description" content="Professional load balancer monitoring dashboard with real-time performance metrics">
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/public/dashboard.css">
+    
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        background: 'hsl(224, 71%, 4%)',
+                        foreground: 'hsl(213, 31%, 91%)',
+                        card: 'hsl(224, 71%, 6%)',
+                        'card-foreground': 'hsl(213, 31%, 91%)',
+                        primary: 'hsl(210, 100%, 50%)',
+                        'primary-foreground': 'hsl(210, 40%, 98%)',
+                        'primary-glow': 'hsl(210, 100%, 65%)',
+                        secondary: 'hsl(217, 33%, 17%)',
+                        muted: 'hsl(223, 47%, 11%)',
+                        'muted-foreground': 'hsl(215, 20%, 65%)',
+                        accent: 'hsl(142, 76%, 36%)',
+                        warning: 'hsl(38, 92%, 50%)',
+                        destructive: 'hsl(0, 84%, 60%)',
+                        border: 'hsl(215, 28%, 17%)',
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="dark bg-background text-foreground min-h-screen">
+    <!-- Background Effects -->
+    <div class="fixed inset-0 -z-10 overflow-hidden pointer-events-none">
+        <div class="absolute top-0 left-1/4 w-96 h-96 bg-primary/20 rounded-full blur-3xl"></div>
+        <div class="absolute bottom-0 right-1/4 w-96 h-96 bg-accent/10 rounded-full blur-3xl"></div>
+    </div>
+
+    <!-- Header -->
+    <header class="border-b border-border backdrop-blur-sm bg-card/50 sticky top-0 z-50">
+        <div class="container mx-auto px-6 py-4">
+            <div class="flex items-center justify-between">
+                <div>
+                    <h1 class="text-2xl font-bold text-foreground">Load Balancer Dashboard</h1>
+                    <p class="text-sm text-muted-foreground">Real-time performance monitoring</p>
+                </div>
+                <div class="flex items-center gap-4">
+                    <div class="flex items-center gap-2">
+                        <div class="w-2 h-2 rounded-full bg-accent animate-pulse"></div>
+                        <span class="text-sm text-muted-foreground">Live</span>
+                    </div>
+                    <span class="text-sm text-muted-foreground" id="last-update">Loading...</span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="container mx-auto px-6 py-8">
+        <!-- Loading State -->
+        <div id="loading" class="flex items-center justify-center h-64">
+            <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+        </div>
+
+        <!-- Dashboard Content -->
+        <div id="dashboard" class="hidden space-y-8">
+            <!-- Metric Cards -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <div class="metric-card" id="services-card"></div>
+                <div class="metric-card" id="rps-card"></div>
+                <div class="metric-card" id="latency-card"></div>
+                <div class="metric-card" id="requests-card"></div>
+            </div>
+
+            <!-- Charts Row 1 -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div class="chart-card">
+                    <div class="chart-header">
+                        <div class="flex items-center gap-3">
+                            <div class="p-2 rounded-lg bg-primary/10">
+                                <svg class="w-5 h-5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                                </svg>
+                            </div>
+                            <div>
+                                <h3 class="text-lg font-semibold text-foreground">Latency Over Time</h3>
+                                <p class="text-sm text-muted-foreground">Average response time</p>
+                            </div>
+                        </div>
+                    </div>
+                    <canvas id="latency-chart" height="100px" width="100px"></canvas>
+                </div>
+
+                <div class="chart-card">
+                    <div class="chart-header">
+                        <div class="flex items-center gap-3">
+                            <div class="p-2 rounded-lg bg-accent/10">
+                                <svg class="w-5 h-5 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z"></path>
+                                </svg>
+                            </div>
+                            <div>
+                                <h3 class="text-lg font-semibold text-foreground">Requests & Services</h3>
+                                <p class="text-sm text-muted-foreground">RPS and active instances</p>
+                            </div>
+                        </div>
+                    </div>
+                    <canvas id="rps-chart"></canvas>
+                </div>
+            </div>
+
+            <!-- Charts Row 2 -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div class="chart-card">
+                    <div class="chart-header">
+                        <div class="flex items-center gap-3">
+                            <div class="p-2 rounded-lg bg-warning/10">
+                                <svg class="w-5 h-5 text-warning" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                </svg>
+                            </div>
+                            <div>
+                                <h3 class="text-lg font-semibold text-foreground">Response Time Distribution</h3>
+                                <p class="text-sm text-muted-foreground">Client response times</p>
+                            </div>
+                        </div>
+                    </div>
+                    <canvas id="response-time-chart"></canvas>
+                </div>
+
+                <div class="chart-card">
+                    <div class="chart-header">
+                        <div class="flex items-center gap-3">
+                            <div class="p-2 rounded-lg bg-primary/10">
+                                <svg class="w-5 h-5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+                                </svg>
+                            </div>
+                            <div>
+                                <h3 class="text-lg font-semibold text-foreground">Resource Usage</h3>
+                                <p class="text-sm text-muted-foreground">CPU and Memory</p>
+                            </div>
+                        </div>
+                    </div>
+                    <canvas id="resource-chart"></canvas>
+                </div>
+            </div>
+
+            <!-- Service Instances -->
+            <div>
+                <h2 class="text-xl font-semibold text-foreground mb-4">Service Instances</h2>
+                <div id="services-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <!-- Service cards will be injected here -->
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Custom JS -->
+    <script src="/public/dashboard.js"></script>
+</body>
+</html>

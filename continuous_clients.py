@@ -3,7 +3,7 @@ import httpx
 import time
 import numpy as np
 
-URL = "http://localhost:5000/prediction"
+URL = "http://19.168.1.5:5000/prediction"
 
 async def make_request(i, client):
     try:
@@ -28,4 +28,4 @@ async def request_loop(rate_per_sec=50):
             await asyncio.sleep(interval)
 
 if __name__ == "__main__":
-    asyncio.run(request_loop(rate_per_sec=10))
+    asyncio.run(request_loop(rate_per_sec=2))

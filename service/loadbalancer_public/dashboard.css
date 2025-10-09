@@ -1,0 +1,211 @@
+/* Custom styles for the dashboard */
+
+@keyframes slide-up {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes pulse-glow {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.5;
+    }
+}
+
+.animate-slide-up {
+    animation: slide-up 0.5s ease-out;
+}
+
+.animate-pulse-glow {
+    animation: pulse-glow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Metric Card */
+.metric-card {
+    position: relative;
+    overflow: hidden;
+    border-radius: 0.75rem;
+    border: 1px solid hsl(215, 28%, 17%);
+    background: hsl(224, 71%, 6%);
+    padding: 1.5rem;
+    box-shadow: 0 10px 40px -10px hsl(210, 100%, 10% / 0.4);
+    backdrop-filter: blur(10px);
+    transition: all 0.3s ease;
+}
+
+.metric-card:hover {
+    box-shadow: 0 0 40px hsl(210, 100%, 50% / 0.3);
+}
+
+.metric-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 8rem;
+    height: 8rem;
+    background: linear-gradient(135deg, hsl(210, 100%, 50% / 0.2), hsl(210, 100%, 65% / 0.1));
+    border-radius: 50%;
+    filter: blur(3rem);
+    z-index: -1;
+    opacity: 0.2;
+}
+
+.metric-icon {
+    display: inline-flex;
+    padding: 0.5rem;
+    border-radius: 0.5rem;
+    background: hsl(210, 100%, 50% / 0.1);
+    color: hsl(210, 100%, 50%);
+}
+
+.metric-value {
+    font-size: 1.875rem;
+    font-weight: 700;
+    color: hsl(213, 31%, 91%);
+    animation: slide-up 0.5s ease-out;
+}
+
+.metric-change {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 0.875rem;
+}
+
+.trend-up {
+    color: hsl(142, 76%, 36%);
+}
+
+.trend-down {
+    color: hsl(0, 84%, 60%);
+}
+
+.trend-neutral {
+    color: hsl(215, 20%, 65%);
+}
+
+/* Chart Card */
+.chart-card {
+    position: relative;
+    overflow: hidden;
+    border-radius: 0.75rem;
+    border: 1px solid hsl(215, 28%, 17%);
+    background: hsl(224, 71%, 6%);
+    padding: 1.5rem;
+    box-shadow: 0 10px 40px -10px hsl(210, 100%, 10% / 0.4);
+    backdrop-filter: blur(10px);
+    height: 600px;
+    width:600px;
+    padding-bottom: 12%;
+}
+
+.chart-card::before {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    right: 0;
+    width: 10rem;
+    height: 10rem;
+    background: linear-gradient(135deg, hsl(210, 100%, 50% / 0.2), hsl(210, 100%, 65% / 0.1));
+    border-radius: 50%;
+    filter: blur(3rem);
+    z-index: -1;
+    opacity: 0.1;
+}
+
+.chart-header {
+    margin-bottom: 1.5rem;
+}
+
+/* Service Card */
+.service-card {
+    position: relative;
+    overflow: hidden;
+    border-radius: 0.75rem;
+    border: 1px solid hsl(215, 28%, 17%);
+    background: hsl(224, 71%, 6%);
+    padding: 1rem;
+    transition: all 0.3s ease;
+}
+
+.service-card:hover {
+    border-color: hsl(210, 100%, 50%);
+}
+
+.service-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 6rem;
+    height: 6rem;
+    background: linear-gradient(135deg, hsl(210, 100%, 50% / 0.15), transparent);
+    border-radius: 50%;
+    filter: blur(2rem);
+    z-index: -1;
+}
+
+.status-healthy {
+    background: hsl(142, 76%, 36%);
+}
+
+.status-warning {
+    background: hsl(38, 92%, 50%);
+}
+
+.status-critical {
+    background: hsl(0, 84%, 60%);
+}
+
+.progress-bar {
+    height: 0.5rem;
+    border-radius: 9999px;
+    background: hsl(223, 47%, 11%);
+    overflow: hidden;
+}
+
+.progress-fill {
+    height: 100%;
+    border-radius: 9999px;
+    transition: width 0.3s ease;
+}
+
+.progress-primary {
+    background: hsl(210, 100%, 50%);
+}
+
+.progress-accent {
+    background: hsl(142, 76%, 36%);
+}
+
+.progress-warning {
+    background: hsl(38, 92%, 50%);
+}
+
+/* Scrollbar Styling */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: hsl(224, 71%, 6%);
+}
+
+::-webkit-scrollbar-thumb {
+    background: hsl(215, 28%, 17%);
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: hsl(210, 100%, 50%);
+}

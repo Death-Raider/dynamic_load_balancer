@@ -4,24 +4,22 @@ matplotlib.use("Agg")
 import subprocess
 import itertools
 import atexit
-import numpy as np
 import statistics
 import threading
 import time
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, HTMLResponse, Response, StreamingResponse
+from fastapi.responses import JSONResponse, Response, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 import uvicorn
-
 from contextlib import asynccontextmanager
 from collections import deque
-import io
-import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
 from datetime import datetime
 import httpx
 import sys
 import psutil
+import os
+
 
 # ---- global for autoscaler ----
 response_times = deque(maxlen=1000)
@@ -49,6 +47,7 @@ plot_cache = {
     "cum_requests": None,
     "resource_usage": None,
 }
+instance_stats = {}
 
 # ---- URL ENDPOINTS ----
 URL = "http://localhost"
@@ -183,139 +182,30 @@ def scale_manager():
 
 
 def sample_stats_task():
-    global stats_history, response_times,  last_sample_time, last_sample_count
+    global stats_history, response_times,  last_sample_time, last_sample_count, instance_stats, plot_cache
     # collect stats snapshot
     while True:
         service_stats = get_service_stats(interval_time=SAMPLE_TIME)
         with lock:
             recent = list(stats_history)[-70:]  # keep last 200 samples
             rtimes = list(response_times)
-            
-        if service_stats:
-            timestamp = datetime.now()
-            buf = io.BytesIO()
-
-            ports = [str(s["port"]) for s in service_stats]
-            cpu = [s.get("cpu_percent", 0) for s in service_stats]
-            mem = [s.get("memory_rss_mb", 0) for s in service_stats]
-
-            x = np.arange(len(ports))
-            width = 0.35  # width of each bar
-
-            fig, ax1 = plt.subplots(figsize=(9, 4))
-
-            # Left axis for CPU
-            ax1.bar(x - width/2, cpu, width, label="CPU (%)", color="#4C72B0")
-            ax1.set_ylabel("CPU Usage (%)", color="#4C72B0")
-            ax1.tick_params(axis='y', labelcolor="#4C72B0")
-            ax1.set_ylim(0, 100)
-
-            # Right axis for Memory
-            ax2 = ax1.twinx()
-            ax2.bar(x + width/2, mem, width, label="Memory (Mb)", color="#DD8452")
-            ax2.set_ylabel("Memory Usage (mb)", color="#DD8452")
-            ax2.tick_params(axis='y', labelcolor="#DD8452")
-
-            # Shared config
-            ax1.set_xticks(x)
-            ax1.set_xticklabels(ports)
-            ax1.set_xlabel("Service Port")
-            plt.title(f"CPU & Memory Usage per Service ({timestamp.strftime('%H:%M:%S')})")
-
-            # Add grid and layout tweaks
-            ax1.grid(axis="y", linestyle="--", alpha=0.7)
-            fig.tight_layout()
-
-            # Save to buffer
-            plt.savefig(buf, format="png")
-            plt.close(fig)
-            buf.seek(0)
-            plot_cache["resource_usage"] = buf.getvalue()
-        # latency plot
-        if recent:
-            ts = [datetime.fromtimestamp(p["timestamp"]) for p in recent]
-            lat = [p["avg_lb_handle_time"] for p in recent]
-            buf = io.BytesIO()
-            plt.figure(figsize=(8, 4))
-            plt.plot(ts, lat, marker="o", markersize=3, linewidth=1)
-            plt.title("Average LB Handle Time")
-            plt.xlabel("Timestamp")
-            plt.ylabel("Latency (s)")
-            plt.grid(True)
-            ax = plt.gca()
-            ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
-            plt.gcf().autofmt_xdate()  # rotate labels for readability
-            plt.tight_layout()
-            plt.savefig(buf, format="png")
-            plt.close()
-            buf.seek(0)
-            plot_cache["latency"] = buf.getvalue()
-
-        if recent:
-            ts = [datetime.fromtimestamp(p["timestamp"]) for p in recent]
-            rps = [p["rps"] for p in recent]
-            services = [p["active_services"] for p in recent]
-
-            buf = io.BytesIO()
-            fig, ax1 = plt.subplots(figsize=(8, 4))
-
-            # Left y-axis → RPS
-            color_rps = "tab:blue"
-            ax1.set_xlabel("Time")
-            ax1.set_ylabel("RPS", color=color_rps)
-            ax1.plot(ts, rps, color=color_rps, label="RPS")
-            ax1.tick_params(axis="y", labelcolor=color_rps)
-            ax1.grid(True)
-            ax1.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
-            fig.autofmt_xdate()  # auto-rotate labels for better readability
-            # Right y-axis → Active Services
-            ax2 = ax1.twinx()
-            color_services = "tab:red"
-            ax2.set_ylabel("Active Services", color=color_services)
-            ax2.plot(ts, services, color=color_services, label="Services")
-            ax2.tick_params(axis="y", labelcolor=color_services)
-
-            # Title and layout
-            fig.suptitle("RPS vs Active Services")
-            fig.tight_layout()
-
-            plt.savefig(buf, format="png")
-            plt.close(fig)
-            buf.seek(0)
-
-            plot_cache["rps_scale"] = buf.getvalue()
-
-        # response time histogram
-        if rtimes:
-            buf = io.BytesIO()
-            plt.figure(figsize=(6, 4))
-            plt.hist(rtimes, bins=20)
-            plt.title("Client Response Time Distribution")
-            plt.xlabel("Response Time (s)")
-            plt.ylabel("Count")
-            plt.tight_layout()
-            plt.savefig(buf, format="png")
-            plt.close()
-            buf.seek(0)
-            plot_cache["rt_hist"] = buf.getvalue()
-
-        # cumulative requests
-        if recent:
-            total = [p["total_responses"] for p in recent]
-            buf = io.BytesIO()
-            plt.figure(figsize=(8, 4))
-            plt.plot(ts, total, label="Total Requests")
-            plt.title("Cumulative Requests Over Time")
-            plt.grid(True)
-            ax = plt.gca()
-            ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
-            plt.gcf().autofmt_xdate()  # rotate labels for readability
-            plt.tight_layout()
-            plt.savefig(buf, format="png")
-            plt.close()
-            buf.seek(0)
-            plot_cache["cum_requests"] = buf.getvalue()
-
+        
+        instance_stats = {
+            # current stats below
+            'num_services': len(service_stats),
+            'ports': [str(s["port"]) for s in service_stats],
+            'cpu': [s.get("cpu_percent", 0) for s in service_stats],
+            'mem_rss_mb': [s.get("memory_rss_mb", 0) for s in service_stats],
+            'mem': [s.get("memory_percent", 0) for s in service_stats],
+            'threads': [s.get("threads", 0) for s in service_stats],
+            # historical stats below
+            'ts': [p["timestamp"] for p in recent],
+            'latency': [p["avg_lb_handle_time"] for p in recent],
+            'rps': [p["rps"] for p in recent],
+            'services': [p["active_services"] for p in recent],
+            'total_requests': [p["total_responses"] for p in recent],
+            'response_times': rtimes
+        }
 def pick_backend(endpoint):
     global service_cycle, request_count, URL, ENDPOINT
     service_port = next(service_cycle)
@@ -343,76 +233,27 @@ async def lifespan(app: FastAPI):
     yield
     cleanup()
 
-
+public_dir = os.path.join(os.path.dirname(__file__), "loadbalancer_public")
 app = FastAPI(lifespan=lifespan)
-
+app.mount("/public", StaticFiles(directory=public_dir), name="public")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:7000"  # frontend url
+        "*"
     ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-@app.get("/plot/{plot_name}")
-def serve_plot(plot_name: str):
-    img_data = plot_cache.get(plot_name)
-    if not img_data:
-        return StreamingResponse(io.BytesIO(), media_type="image/png")
-    return StreamingResponse(io.BytesIO(img_data), media_type="image/png")
+@app.get("/")
+def init_page():
+    return FileResponse(os.path.join(public_dir, "dashboard.html"))
 
-
-@app.get("/stats", response_class=HTMLResponse)
-def stats_dashboard():
-    html_content = """
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Load Balancer Dashboard</title>
-        <style>
-            body { font-family: Arial, sans-serif; margin: 20px; }
-            h1 { text-align: center; }
-            img { border: 1px solid #ccc; display: block; margin: 20px auto; }
-            .section { margin-bottom: 50px; }
-        </style>
-    </head>
-    <body>
-        <div>
-            <h2>Latency Over Time</h2>
-            <img id="latency" src="/plot/latency" width="600">
-            </div>
-            <div>
-            <h2>RPS vs Active Services</h2>
-            <img id="rps_scale" src="/plot/rps_scale" width="600">
-            </div>
-            <div>
-            <h2>Response Time Histogram</h2>
-            <img id="rt_hist" src="/plot/rt_hist" width="600">
-            </div>
-            <div>
-            <h2>Cumulative Requests</h2>
-            <img id="cum_requests" src="/plot/cum_requests" width="600">
-            </div>
-            <div>
-            <h2>CPU Resources</h2>
-            <img id="resource_usage" src="/plot/resource_usage" width="600">
-            </div>
-            <script>
-            // Refresh plots every 4s
-            setInterval(() => {
-                ["latency", "rps_scale", "rt_hist", "cum_requests", "resource_usage"].forEach(id => {
-                const img = document.getElementById(id);
-                img.src = `/plot/${id}?t=${Date.now()}`; // cache-bust
-                });
-            }, 3000);
-            </script>
-    </body>
-    </html>
-    """
-    return HTMLResponse(content=html_content)
-
+@app.get("/stats")
+def serve_stats():
+    json_values = instance_stats
+    return JSONResponse(content=json_values)
 
 @app.api_route("/{full_path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
 async def proxy(request: Request, full_path: str):
