@@ -59,7 +59,9 @@ def start_service(port: int):
     global application, services, request_count
     with lock:
         proc = subprocess.Popen(["python", application, str(port)])
-        services.append((port, proc, psutil.Process(proc.pid)))
+        p = psutil.Process(proc.pid)
+        p.cpu_percent(interval=None)  # initialize cpu_percent measurement
+        services.append((port, proc, p))
         request_count[port] = 0
     print(f"[Scaler] Started service on port {port}")
 
@@ -96,8 +98,23 @@ def get_service_stats(interval_time=1):
     for port, proc, process in services:
         try:
             p = process
+
+            # Get initial CPU times
+            t0_proc = p.cpu_times()
+            t0_sys = psutil.cpu_times()
+            time.sleep(interval_time)
+            t1_proc = p.cpu_times()
+            t1_sys = psutil.cpu_times()
+
+            # Compute CPU delta for process
+            proc_delta = sum((t1_proc[i] - t0_proc[i]) for i in range(len(t0_proc)))
+            # Compute total CPU delta
+            sys_delta = sum((t1_sys[i] - t0_sys[i]) for i in range(len(t0_sys)))
+
+            # Avoid division by zero
+            cpu_percent = (proc_delta / sys_delta * 100) if sys_delta > 0 else 0.0
+
             with p.oneshot():  # optimizes multiple calls
-                cpu_percent = p.cpu_percent(interval=interval_time)  # short sample
                 memory_info = p.memory_info()
                 mem_percent = p.memory_percent()
                 threads = p.num_threads()

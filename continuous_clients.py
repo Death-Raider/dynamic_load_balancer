@@ -28,4 +28,4 @@ async def request_loop(rate_per_sec=50):
             await asyncio.sleep(interval)
 
 if __name__ == "__main__":
-    asyncio.run(request_loop(rate_per_sec=8))
+    asyncio.run(request_loop(rate_per_sec=4))
