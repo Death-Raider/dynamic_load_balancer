@@ -186,6 +186,7 @@ def sample_stats_task():
             # current stats below
             'num_services': len(service_stats),
             'ports': [str(s["port"]) for s in service_stats],
+            'pids': [str(s["pid"]) for s in service_stats],
             'cpu': [s.get("cpu_percent", 0) for s in service_stats],
             'mem_rss_mb': [s.get("memory_rss_mb", 0) for s in service_stats],
             'mem': [s.get("memory_percent", 0) for s in service_stats],
