@@ -11,7 +11,7 @@ app = FastAPI()
 
 app.mount("/public", StaticFiles(directory=public_dir), name="public")
 
-BACKEND_PATH = 'http://localhost:5000/prediction'
+BACKEND_PATH = 'http://192.168.1.5:5000/prediction'
 
 @app.get("/")
 async def serve_index():
